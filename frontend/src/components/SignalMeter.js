@@ -514,7 +514,10 @@ function SignalMeter() {
         }
       }
     }
-  }, [tunerStatus?.channel]);
+    // selectedTuner is included so switching tuners always re-evaluates this, even
+    // when the new tuner happens to share the same frequency as the previous one
+    // (React would otherwise skip re-running since tunerStatus?.channel didn't change).
+  }, [tunerStatus?.channel, selectedTuner]);
 
   // Auto-fetch programs when channel is already tuned on initial load or after tuner change
   useEffect(() => {
@@ -536,9 +539,16 @@ function SignalMeter() {
     setPlpInfo(null);
     setL1Info(null);
     setIsAtsc3Channel(false);
-    setDirectChannel('');
-    // Note: monitoring will restart via the monitoring useEffect, and
-    // the auto-fetch useEffect will repopulate data for the new tuner
+    // Note: directChannel is NOT cleared here - the directChannel-populating effect
+    // above already owns it (including clearing to '' when the new tuner is
+    // untuned), and runs on selectedTuner too. Clearing it here as well raced
+    // against that effect on every tuner switch and always won (this effect is
+    // declared later, so runs after), permanently blanking the CH box whenever
+    // the newly selected tuner happened to share the same frequency as the
+    // previous one (tunerStatus.channel wouldn't change, so the populate effect
+    // wouldn't re-fire again after being stomped).
+    // Monitoring restarts via the monitoring useEffect, and the auto-fetch
+    // useEffect repopulates program data for the new tuner.
   }, [selectedTuner]);
 
   // Handle antenna mode switching
