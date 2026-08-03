@@ -1,5 +1,6 @@
 const express = require('express');
-const { createServer } = require('http');
+const http = require('http');
+const { createServer } = http;
 const { Server } = require('socket.io');
 const { exec } = require('child_process');
 const https = require('https');
@@ -360,160 +361,59 @@ class HDHomeRunController {
     });
   }
 
-  async getTunerStatus(deviceId, tuner = 0) {
-    return new Promise(async (resolve, reject) => {
-      try {
-        // Get both regular status and debug info simultaneously
-        const [statusResult, debugResult] = await Promise.all([
-          this.getStatusCommand(deviceId, tuner, 'status'),
-          this.getStatusCommand(deviceId, tuner, 'debug')
-        ]);
-
-        if (!statusResult) {
-          resolve(null);
-          return;
-        }
-
-        const status = {};
-        const statusLine = statusResult.trim();
-        
-        if (statusLine === 'none') {
-          resolve({ channel: 'none', lock: false });
-          return;
-        }
-
-        const patterns = {
-          channel: /ch=([^\s]+)/,
-          lock: /lock=([^\s]+)/,
-          ss: /ss=(\d+)/,
-          snq: /snq=(\d+)/,
-          seq: /seq=(\d+)/,
-          bps: /bps=(\d+)/,
-          pps: /pps=(\d+)/
-        };
-
-        Object.entries(patterns).forEach(([key, pattern]) => {
-          const match = statusLine.match(pattern);
-          if (match) {
-            status[key] = key === 'lock' ? match[1] : 
-                         ['ss', 'snq', 'seq', 'bps', 'pps'].includes(key) ? 
-                         parseInt(match[1]) : match[1];
-          }
-        });
-
-        status.lock = status.lock !== undefined;
-        
-        // Extract dB values from debug output with educated conversion
-        if (debugResult) {
-          const dbgMatch = debugResult.match(/dbg=(\d+)-(\d+)\/(-?\d+)/);
-          if (dbgMatch) {
-            const signalRaw = parseInt(dbgMatch[1]);
-            const snrRaw = parseInt(dbgMatch[2]);
-            
-            // Signal strength: map raw values to realistic ATSC dBm range
-            // Based on observed data: 9-86 raw maps to roughly -80 to -40 dBm
-            let estimatedSignalDbm;
-            if (signalRaw >= 80) estimatedSignalDbm = -40 - (100 - signalRaw) * 0.5;  // Strong: -40 to -50
-            else if (signalRaw >= 60) estimatedSignalDbm = -50 - (80 - signalRaw) * 0.5;   // Good: -50 to -60
-            else if (signalRaw >= 20) estimatedSignalDbm = -60 - (60 - signalRaw) * 0.5;   // Fair: -60 to -80
-            else estimatedSignalDbm = -80 - (20 - signalRaw) * 0.5;                       // Weak: -80+
-            
-            // SNR: more direct conversion (0-80 raw ≈ 0-25 dB)
-            const estimatedSnrDb = snrRaw * 0.31; // Rough linear conversion
-            
-            status.ssDb = Math.round(estimatedSignalDbm * 10) / 10;
-            status.snrDb = snrRaw > 0 ? Math.round(estimatedSnrDb * 10) / 10 : 0;
-            status.debugRaw = `${signalRaw}-${snrRaw}/${dbgMatch[3]}`;
-            
-            console.log(`dB estimate: ${status.ss}% signal = ${signalRaw} raw → ${status.ssDb}dBm, ${status.snq}% SNR = ${snrRaw} raw → ${status.snrDb}dB`);
-          }
-        }
-        
-        resolve(status);
-      } catch (error) {
-        resolve(null);
-      }
-    });
+  // Resolve a deviceId (which may be a discovered hex device ID) to its IP.
+  // Manual/host-based devices already use the host as both id and ip.
+  getDeviceIp(deviceId) {
+    const known = this.devices.find(d => d.id === deviceId);
+    return known ? known.ip : deviceId;
   }
 
-  async getStatusCommand(deviceId, tuner, command) {
-    return new Promise((resolve) => {
-      exec(`hdhomerun_config ${deviceId} get /tuner${tuner}/${command}`, (error, stdout) => {
-        if (error) {
-          resolve(null);
-        } else {
-          resolve(stdout.trim());
-        }
-      });
-    });
-  }
-
-  async getSignalDbValues(deviceId, tuner = 0) {
+  async fetchTunerStatusJson(ip) {
     return new Promise((resolve, reject) => {
-      // Try to get dB values using various debug commands
-      Promise.all([
-        this.getDbValue(deviceId, tuner, 'debug'),
-        this.getDbValue(deviceId, tuner, 'vstatus'),
-        this.getDbValue(deviceId, tuner, 'streaminfo'),
-        this.getDbValue(deviceId, tuner, 'plotsample')
-      ]).then(results => {
-        console.log(`dB query results for ${deviceId} tuner ${tuner}:`, results);
-        
-        const dbData = {};
-        
-        // Parse results for dB values
-        results.forEach((result, index) => {
-          if (result) {
-            console.log(`Command ${index} output:`, result);
-            
-            // Look for HDHomeRun debug format: dbg=65-19/-1817
-            const dbgMatch = result.match(/dbg=(\d+)-(\d+)\/(-?\d+)/);
-            if (dbgMatch) {
-              // Format appears to be: signal-snr/something
-              const signalRaw = parseInt(dbgMatch[1]);
-              const snrRaw = parseInt(dbgMatch[2]);
-              const thirdValue = parseInt(dbgMatch[3]);
-              
-              // Convert to actual dB values 
-              // Different conversion for ATSC 1.0 vs 3.0 - try simpler mapping
-              // For 71% signal, expect around -50 to -60 dBm
-              dbData.ssDb = -100 + (signalRaw * 0.5); // Linear scaling attempt
-              dbData.snrDb = snrRaw;
-              dbData.debugRaw = `${signalRaw}-${snrRaw}/${thirdValue}`;
-              
-              console.log(`Converted dB values: signal=${signalRaw} -> ${dbData.ssDb}dBm, snr=${snrRaw} -> ${dbData.snrDb}dB`);
-            }
-            
-            // Look for standard dB patterns as fallback
-            const ssDbMatch = result.match(/ss=(-?\d+(?:\.\d+)?)dBm/i);
-            const snrDbMatch = result.match(/snr=(-?\d+(?:\.\d+)?)dB/i);
-            const rssiMatch = result.match(/rssi=(-?\d+(?:\.\d+)?)/i);
-            
-            if (ssDbMatch) dbData.ssDb = parseFloat(ssDbMatch[1]);
-            if (snrDbMatch) dbData.snrDb = parseFloat(snrDbMatch[1]);
-            if (rssiMatch) dbData.rssi = parseFloat(rssiMatch[1]);
+      const req = http.get({ host: ip, path: '/status.json', timeout: 3000 }, (res) => {
+        let data = '';
+        res.on('data', chunk => { data += chunk; });
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(data));
+          } catch (parseErr) {
+            reject(parseErr);
           }
         });
-        
-        console.log('Parsed dB data:', dbData);
-        resolve(dbData);
-      }).catch((error) => {
-        console.log('dB query error:', error);
-        resolve({});
+      });
+
+      req.on('error', reject);
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('status.json request timed out'));
       });
     });
   }
 
-  async getDbValue(deviceId, tuner, command) {
-    return new Promise((resolve) => {
-      exec(`hdhomerun_config ${deviceId} get /tuner${tuner}/${command}`, (error, stdout) => {
-        if (error) {
-          resolve(null);
-        } else {
-          resolve(stdout.trim());
-        }
-      });
-    });
+  async getTunerStatus(deviceId, tuner = 0) {
+    try {
+      const ip = this.getDeviceIp(deviceId);
+      const tunerStatuses = await this.fetchTunerStatusJson(ip);
+      const entry = tunerStatuses.find(t => t.Resource === `tuner${tuner}`);
+
+      if (!entry || !entry.Frequency) {
+        return { channel: 'none', lock: false };
+      }
+
+      // status.json has no field for the raw tuned channel request (e.g. "auto:7"),
+      // so encode the frequency in the "prefix:hz" form the frontend already
+      // parses via frequencyToChannel() for display.
+      return {
+        channel: `tuned:${entry.Frequency}`,
+        lock: true,
+        ss: Math.round(entry.SignalStrengthPercent ?? 0),
+        snq: Math.round(entry.SignalQualityPercent ?? 0),
+        seq: Math.round(entry.SymbolQualityPercent ?? 0)
+      };
+    } catch (error) {
+      console.error(`status.json fetch error for ${deviceId} tuner ${tuner}:`, error.message);
+      return null;
+    }
   }
 
   async getCurrentProgram(deviceId, tuner = 0) {
