@@ -34,6 +34,12 @@ class HDHomeRunController {
     // only ever grows, so in-flight status polls keep working through a bad discovery pass.
     this.deviceIpMap = new Map();
     this._lastRediscoverAttempt = 0; // throttle for on-demand rediscovery in getDeviceIp()
+    // status.json's NetworkRate is a byte counter that resets on an internal ~1s tick,
+    // not an actual rate - a single poll can land anywhere from ~0 to the true bps
+    // depending on timing. Track recent samples per tuner and report the max seen in
+    // the last ~1.2s, which converges close to the true rate (a SiliconDust firmware
+    // quirk - filed with them; can drop this once NetworkRate itself is fixed).
+    this.bitrateHistory = new Map();
   }
 
   async discoverDevices(forceRefresh = false) {
@@ -416,23 +422,38 @@ class HDHomeRunController {
       const tunerStatuses = await this.fetchTunerStatusJson(ip);
       const entry = tunerStatuses.find(t => t.Resource === `tuner${tuner}`);
 
+      const bitrateKey = `${deviceId}:${tuner}`;
+
       if (!entry || !entry.Frequency) {
+        this.bitrateHistory.delete(bitrateKey);
         return { channel: 'none', lock: false };
+      }
+
+      // NetworkRate (and VctNumber/VctName) only populate once something is actively
+      // pulling the tuner's stream (TargetIP set) - absent otherwise, so bps is 0
+      // until a client (e.g. this app's own Watch feature) is consuming the tuner.
+      let bps = 0;
+      if (entry.NetworkRate) {
+        const now = Date.now();
+        const recent = (this.bitrateHistory.get(bitrateKey) || [])
+          .filter(sample => now - sample.t <= 1200);
+        recent.push({ t: now, rate: entry.NetworkRate });
+        this.bitrateHistory.set(bitrateKey, recent);
+        bps = Math.max(...recent.map(sample => sample.rate));
+      } else {
+        this.bitrateHistory.delete(bitrateKey);
       }
 
       // status.json has no field for the raw tuned channel request (e.g. "auto:7"),
       // so encode the frequency in the "prefix:hz" form the frontend already
       // parses via frequencyToChannel() for display.
-      // NetworkRate (and VctNumber/VctName) only populate once something is actively
-      // pulling the tuner's stream (TargetIP set) - absent otherwise, so bps is 0
-      // until a client (e.g. this app's own Watch feature) is consuming the tuner.
       return {
         channel: `tuned:${entry.Frequency}`,
         lock: true,
         ss: Math.round(entry.SignalStrengthPercent ?? 0),
         snq: Math.round(entry.SignalQualityPercent ?? 0),
         seq: Math.round(entry.SymbolQualityPercent ?? 0),
-        bps: entry.NetworkRate ?? 0
+        bps
       };
     } catch (error) {
       console.error(`status.json fetch error for ${deviceId} tuner ${tuner}:`, error.message);
