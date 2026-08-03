@@ -207,6 +207,16 @@ function channelToFrequency(channel, region = 'us') {
   return null;
 }
 
+// Format the raw tuner channel string (e.g. "tuned:177000000") for display as MHz
+function formatChannelHeader(channel) {
+  if (!channel || channel === 'none') return 'Stopped';
+  const freqMatch = channel.match(/:(\d{8,})/);
+  if (freqMatch) {
+    return `${parseInt(freqMatch[1], 10) / 1000000} MHz`;
+  }
+  return channel;
+}
+
 // Get channel range for region
 function getChannelRange(region) {
   return region === 'eu'
@@ -975,7 +985,7 @@ function SignalMeter() {
                 {/* Channel Info and Controls */}
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, flexWrap: 'wrap', gap: 1 }}>
                   <Typography variant="h6" sx={{ fontSize: '1.1rem', minWidth: 'fit-content' }}>
-                    {!tunerStatus?.channel || tunerStatus.channel === 'none' ? 'Stopped' : tunerStatus.channel}
+                    {formatChannelHeader(tunerStatus?.channel)}
                   </Typography>
 
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
