@@ -29,6 +29,11 @@ class HDHomeRunController {
     this.deviceNameCache = new Map(); // Cache for device name lookups
     this.cacheTTL = 5 * 60 * 1000; // 5 minute TTL
     this.httpDiscoveryCache = null; // Cached HTTP API results; only refreshed on explicit user request
+    // Persistent device ID -> IP mapping. UDP discovery is lossy and reruns on every
+    // /api/devices call, so this.devices can transiently drop a device; this cache
+    // only ever grows, so in-flight status polls keep working through a bad discovery pass.
+    this.deviceIpMap = new Map();
+    this._lastRediscoverAttempt = 0; // throttle for on-demand rediscovery in getDeviceIp()
   }
 
   async discoverDevices(forceRefresh = false) {
@@ -72,6 +77,7 @@ class HDHomeRunController {
     }
 
     this.devices = devices;
+    devices.forEach(device => this.deviceIpMap.set(device.id, device.ip));
     return devices;
   }
 
@@ -363,9 +369,22 @@ class HDHomeRunController {
 
   // Resolve a deviceId (which may be a discovered hex device ID) to its IP.
   // Manual/host-based devices already use the host as both id and ip.
-  getDeviceIp(deviceId) {
-    const known = this.devices.find(d => d.id === deviceId);
-    return known ? known.ip : deviceId;
+  // Uses deviceIpMap (append-only) rather than this.devices so a poll in flight
+  // during a lossy UDP discovery pass doesn't lose a previously-known IP.
+  // Self-heals on a cache miss (e.g. right after a restart, before any /api/devices
+  // call has repopulated the map) by triggering a background rediscovery, throttled
+  // so a permanently-unresolvable ID doesn't rebroadcast UDP discovery every poll.
+  async getDeviceIp(deviceId) {
+    const known = this.deviceIpMap.get(deviceId);
+    if (known) return known;
+
+    const now = Date.now();
+    if (!this._lastRediscoverAttempt || now - this._lastRediscoverAttempt > 3000) {
+      this._lastRediscoverAttempt = now;
+      await this.discoverDevices().catch(() => {});
+    }
+
+    return this.deviceIpMap.get(deviceId) || null;
   }
 
   async fetchTunerStatusJson(ip) {
@@ -392,7 +411,8 @@ class HDHomeRunController {
 
   async getTunerStatus(deviceId, tuner = 0) {
     try {
-      const ip = this.getDeviceIp(deviceId);
+      const ip = await this.getDeviceIp(deviceId);
+      if (!ip) return null;
       const tunerStatuses = await this.fetchTunerStatusJson(ip);
       const entry = tunerStatuses.find(t => t.Resource === `tuner${tuner}`);
 
