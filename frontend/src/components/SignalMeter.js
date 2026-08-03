@@ -220,6 +220,11 @@ function SignalMeter() {
     return localStorage.getItem('hdhr-region') || 'us';
   });
 
+  // Load poll interval from localStorage, default to 1000ms
+  const [pollInterval, setPollInterval] = useState(() => {
+    return parseInt(localStorage.getItem('hdhr-poll-interval'), 10) || 1000;
+  });
+
   const [devices, setDevices] = useState([]);
   const [selectedDevice, setSelectedDevice] = useState('');
   const [deviceInfo, setDeviceInfo] = useState(null);
@@ -259,6 +264,7 @@ function SignalMeter() {
   const selectedTunerRef = React.useRef(selectedTuner);
   const antennaModeRef = React.useRef(antennaMode);
   const deviceInfoRef = React.useRef(deviceInfo);
+  const pollIntervalRef = React.useRef(pollInterval);
   const pendingProgramFetchRef = React.useRef(null);
 
   // Save region preference to localStorage
@@ -282,6 +288,11 @@ function SignalMeter() {
   React.useEffect(() => {
     deviceInfoRef.current = deviceInfo;
   }, [deviceInfo]);
+
+  React.useEffect(() => {
+    pollIntervalRef.current = pollInterval;
+    localStorage.setItem('hdhr-poll-interval', pollInterval);
+  }, [pollInterval]);
 
   // Update signal history whenever tunerStatus changes
   useEffect(() => {
@@ -362,14 +373,16 @@ function SignalMeter() {
               console.log('Emitting start-antenna-mode for device:', selectedDeviceRef.current, 'tuners:', deviceInfoRef.current?.tuners);
               newSocket.emit('start-antenna-mode', {
                 deviceId: selectedDeviceRef.current,
-                tunerCount: deviceInfoRef.current?.tuners || 2
+                tunerCount: deviceInfoRef.current?.tuners || 2,
+                pollInterval: pollIntervalRef.current
               });
             } else {
               // Restart normal monitoring
               console.log('Emitting start-monitoring for device:', selectedDeviceRef.current, 'tuner:', selectedTunerRef.current);
               newSocket.emit('start-monitoring', {
                 deviceId: selectedDeviceRef.current,
-                tuner: selectedTunerRef.current
+                tuner: selectedTunerRef.current,
+                pollInterval: pollIntervalRef.current
               });
             }
           }, 100);
@@ -437,7 +450,8 @@ function SignalMeter() {
       console.log('useEffect: Starting monitoring for device:', selectedDevice, 'tuner:', selectedTuner);
       socket.emit('start-monitoring', {
         deviceId: selectedDevice,
-        tuner: selectedTuner
+        tuner: selectedTuner,
+        pollInterval
       });
     }
     return () => {
@@ -446,7 +460,7 @@ function SignalMeter() {
         socket.emit('stop-monitoring');
       }
     };
-  }, [selectedDevice, selectedTuner, socket]);
+  }, [selectedDevice, selectedTuner, socket, pollInterval]);
 
   // Update directChannel input field when tuner status changes
   useEffect(() => {
@@ -511,18 +525,20 @@ function SignalMeter() {
       socket.emit('stop-monitoring');
       socket.emit('start-antenna-mode', {
         deviceId: selectedDevice,
-        tunerCount: deviceInfo.tuners
+        tunerCount: deviceInfo.tuners,
+        pollInterval
       });
     } else {
       console.log('Switching to normal mode');
       socket.emit('stop-monitoring');
       socket.emit('start-monitoring', {
         deviceId: selectedDevice,
-        tuner: selectedTuner
+        tuner: selectedTuner,
+        pollInterval
       });
       setAllTunersData([]); // Clear antenna mode data
     }
-  }, [antennaMode, selectedDevice, socket, deviceInfo, selectedTuner]);
+  }, [antennaMode, selectedDevice, socket, deviceInfo, selectedTuner, pollInterval]);
 
   const discoverDevices = async (force = false) => {
     setLoading(true);
@@ -1052,6 +1068,20 @@ function SignalMeter() {
                       </Select>
                     </FormControl>
                   )}
+
+                  <FormControl sx={{ minWidth: 120 }} size="small">
+                    <InputLabel>Poll Rate</InputLabel>
+                    <Select
+                      value={pollInterval}
+                      label="Poll Rate"
+                      onChange={(e) => setPollInterval(e.target.value)}
+                    >
+                      <MenuItem value={250}>250 ms</MenuItem>
+                      <MenuItem value={500}>500 ms</MenuItem>
+                      <MenuItem value={1000}>1 s</MenuItem>
+                      <MenuItem value={2000}>2 s</MenuItem>
+                    </Select>
+                  </FormControl>
                 </Box>
               </CardContent>
             </Card>
