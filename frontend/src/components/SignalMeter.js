@@ -226,12 +226,17 @@ function SignalMeter() {
   });
 
   const [devices, setDevices] = useState([]);
-  const [selectedDevice, setSelectedDevice] = useState('');
+  // Restore last-used device/tuner/mode so a page reload or container restart
+  // returns to where the user was instead of always landing on the first device.
+  const [selectedDevice, setSelectedDevice] = useState(() => {
+    return localStorage.getItem('hdhr-selected-device') || '';
+  });
   const [deviceInfo, setDeviceInfo] = useState(null);
-  const [selectedTuner, setSelectedTuner] = useState(0);
+  const [selectedTuner, setSelectedTuner] = useState(() => {
+    return parseInt(localStorage.getItem('hdhr-selected-tuner'), 10) || 0;
+  });
   const [channelMap, setChannelMap] = useState(() => {
-    // Set default channel map based on region
-    return region === 'eu' ? 'eu-bcast' : 'us-bcast';
+    return localStorage.getItem('hdhr-channel-map') || (region === 'eu' ? 'eu-bcast' : 'us-bcast');
   });
   const [selectedChannel, setSelectedChannel] = useState('');
   const [tunerStatus, setTunerStatus] = useState(null);
@@ -244,7 +249,9 @@ function SignalMeter() {
   const [plpInfo, setPlpInfo] = useState(null);
   const [l1Info, setL1Info] = useState(null);
   const [isAtsc3Channel, setIsAtsc3Channel] = useState(false);
-  const [antennaMode, setAntennaMode] = useState(false);
+  const [antennaMode, setAntennaMode] = useState(() => {
+    return localStorage.getItem('hdhr-antenna-mode') === 'true';
+  });
   const [allTunersData, setAllTunersData] = useState([]);
   const [contextMenu, setContextMenu] = useState(null); // { mouseX, mouseY, program }
 
@@ -272,17 +279,21 @@ function SignalMeter() {
     localStorage.setItem('hdhr-region', region);
   }, [region]);
 
-  // Keep refs in sync with state
+  // Keep refs in sync with state, and persist navigation state so a reload or
+  // container restart returns to where the user was
   React.useEffect(() => {
     selectedDeviceRef.current = selectedDevice;
+    if (selectedDevice) localStorage.setItem('hdhr-selected-device', selectedDevice);
   }, [selectedDevice]);
 
   React.useEffect(() => {
     selectedTunerRef.current = selectedTuner;
+    localStorage.setItem('hdhr-selected-tuner', selectedTuner);
   }, [selectedTuner]);
 
   React.useEffect(() => {
     antennaModeRef.current = antennaMode;
+    localStorage.setItem('hdhr-antenna-mode', antennaMode);
   }, [antennaMode]);
 
   React.useEffect(() => {
@@ -293,6 +304,10 @@ function SignalMeter() {
     pollIntervalRef.current = pollInterval;
     localStorage.setItem('hdhr-poll-interval', pollInterval);
   }, [pollInterval]);
+
+  React.useEffect(() => {
+    localStorage.setItem('hdhr-channel-map', channelMap);
+  }, [channelMap]);
 
   // Update signal history whenever tunerStatus changes
   useEffect(() => {
@@ -546,11 +561,18 @@ function SignalMeter() {
       const url = force ? '/api/devices?force=true' : '/api/devices';
       const response = await axios.get(url);
       setDevices(response.data);
-      // Auto-select first online device
-      const firstOnlineDevice = response.data.find(d => d.online !== false);
-      if (firstOnlineDevice) {
-        setSelectedDevice(firstOnlineDevice.id);
-        await getDeviceInfo(firstOnlineDevice.id);
+      // Prefer restoring the previously-selected device (e.g. after a reload or
+      // container restart) if it's still present and online; otherwise fall back
+      // to the first online device.
+      const restoredDevice = response.data.find(d => d.id === selectedDeviceRef.current && d.online !== false);
+      const targetDevice = restoredDevice || response.data.find(d => d.online !== false);
+      if (targetDevice) {
+        setSelectedDevice(targetDevice.id);
+        const info = await getDeviceInfo(targetDevice.id);
+        // Clamp a restored tuner selection to this device's actual tuner count
+        if (info && selectedTunerRef.current >= info.tuners) {
+          setSelectedTuner(info.tuners - 1);
+        }
       } else if (response.data.length > 0) {
         // All devices offline - clear selection
         setSelectedDevice('');
