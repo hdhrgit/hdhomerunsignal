@@ -19,9 +19,11 @@ A modern web application that replaces the discontinued HDHomeRun Signal Android
 
 ## Screenshots Reference
 Main Mode
+
 <img width="742" height="1285" alt="image" src="https://github.com/user-attachments/assets/2de59b75-0c89-43b9-991a-4b24bde06a9f" />
 
 Antenna Mode
+
 <img width="1084" height="1252" alt="image" src="https://github.com/user-attachments/assets/1fab4b4e-dc43-428c-9367-4324bb79d8df" />
 
 
