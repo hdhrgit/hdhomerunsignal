@@ -62,8 +62,12 @@ The Docker image will automatically select the correct architecture for your pla
 
 ## Installation & Setup
 
-Pull the pre-built container from Docker Hub
-https://hub.docker.com/r/petelombardo/hdhomerun-signal-web
+Pull the pre-built container from GitHub Container Registry
+https://github.com/hdhrgit/hdhomerunsignal/pkgs/container/hdhomerunsignal
+
+```bash
+docker pull ghcr.io/hdhrgit/hdhomerunsignal:latest
+```
 
 OR
 
@@ -140,7 +144,7 @@ HDHOMERUN_DEVICES=192.168.1.100,192.168.1.101
 ```yaml
 services:
   hdhomerun-signal:
-    image: petelombardo/hdhomerun-signal-web
+    image: ghcr.io/hdhrgit/hdhomerunsignal:latest
     network_mode: host
     environment:
       - HDHOMERUN_DEVICES=192.168.2.50,192.168.2.51
