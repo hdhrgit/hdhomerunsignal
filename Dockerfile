@@ -1,5 +1,5 @@
 # Multi-stage build for React frontend and Node.js backend
-FROM node:18-alpine as frontend-build
+FROM node:24-alpine AS frontend-build
 
 WORKDIR /app/frontend
 COPY frontend/package.json ./
@@ -21,8 +21,8 @@ RUN apt-get update && apt-get install -y \
     libhdhomerun-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js 18
-RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+# Install Node.js 24
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y nodejs
 
 WORKDIR /app
