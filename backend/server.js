@@ -423,12 +423,16 @@ class HDHomeRunController {
       // status.json has no field for the raw tuned channel request (e.g. "auto:7"),
       // so encode the frequency in the "prefix:hz" form the frontend already
       // parses via frequencyToChannel() for display.
+      // NetworkRate (and VctNumber/VctName) only populate once something is actively
+      // pulling the tuner's stream (TargetIP set) - absent otherwise, so bps is 0
+      // until a client (e.g. this app's own Watch feature) is consuming the tuner.
       return {
         channel: `tuned:${entry.Frequency}`,
         lock: true,
         ss: Math.round(entry.SignalStrengthPercent ?? 0),
         snq: Math.round(entry.SignalQualityPercent ?? 0),
-        seq: Math.round(entry.SymbolQualityPercent ?? 0)
+        seq: Math.round(entry.SymbolQualityPercent ?? 0),
+        bps: entry.NetworkRate ?? 0
       };
     } catch (error) {
       console.error(`status.json fetch error for ${deviceId} tuner ${tuner}:`, error.message);
@@ -680,8 +684,9 @@ class HDHomeRunController {
     });
   }
 
-  startMonitoring(socket, deviceId, tuner) {
+  startMonitoring(socket, deviceId, tuner, pollIntervalMs = 1000) {
     this.stopMonitoring(socket);
+    const intervalMs = Math.min(Math.max(pollIntervalMs, 250), 5000);
 
     const intervalId = setInterval(async () => {
       try {
@@ -706,15 +711,16 @@ class HDHomeRunController {
       } catch (error) {
         console.error('Monitoring error:', error);
       }
-    }, 1000);
+    }, intervalMs);
 
     this.monitoringIntervals.set(socket.id, intervalId);
   }
 
-  startAntennaMode(socket, deviceId, tunerCount) {
+  startAntennaMode(socket, deviceId, tunerCount, pollIntervalMs = 1000) {
     this.stopMonitoring(socket);
+    const intervalMs = Math.min(Math.max(pollIntervalMs, 250), 5000);
 
-    console.log(`Starting antenna mode for device ${deviceId} with ${tunerCount} tuners`);
+    console.log(`Starting antenna mode for device ${deviceId} with ${tunerCount} tuners, polling every ${intervalMs}ms`);
 
     const intervalId = setInterval(async () => {
       try {
@@ -734,7 +740,7 @@ class HDHomeRunController {
       } catch (error) {
         console.error('Antenna mode monitoring error:', error);
       }
-    }, 1000);
+    }, intervalMs);
 
     this.monitoringIntervals.set(socket.id, intervalId);
   }
@@ -939,14 +945,14 @@ ${streamUrl}
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
-  socket.on('start-monitoring', ({ deviceId, tuner }) => {
+  socket.on('start-monitoring', ({ deviceId, tuner, pollInterval }) => {
     console.log(`Starting monitoring for device ${deviceId}, tuner ${tuner}`);
-    hdhrController.startMonitoring(socket, deviceId, tuner);
+    hdhrController.startMonitoring(socket, deviceId, tuner, pollInterval);
   });
 
-  socket.on('start-antenna-mode', ({ deviceId, tunerCount }) => {
+  socket.on('start-antenna-mode', ({ deviceId, tunerCount, pollInterval }) => {
     console.log(`Starting antenna mode for device ${deviceId} with ${tunerCount} tuners`);
-    hdhrController.startAntennaMode(socket, deviceId, tunerCount);
+    hdhrController.startAntennaMode(socket, deviceId, tunerCount, pollInterval);
   });
 
   socket.on('stop-monitoring', () => {
