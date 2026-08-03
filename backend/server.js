@@ -453,7 +453,12 @@ class HDHomeRunController {
         ss: Math.round(entry.SignalStrengthPercent ?? 0),
         snq: Math.round(entry.SignalQualityPercent ?? 0),
         seq: Math.round(entry.SymbolQualityPercent ?? 0),
-        bps
+        bps,
+        // Which specific subchannel (if any) is actively being streamed, and to whom -
+        // only present once a client (this app's Watch feature, a DVR, etc.) is
+        // actually pulling the stream. A tuner can only serve one target at a time.
+        vctNumber: entry.VctNumber ?? null,
+        targetIp: entry.TargetIP ?? null
       };
     } catch (error) {
       console.error(`status.json fetch error for ${deviceId} tuner ${tuner}:`, error.message);

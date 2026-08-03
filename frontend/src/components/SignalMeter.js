@@ -1246,6 +1246,9 @@ function SignalMeter() {
                             {program.status && !program.encrypted && (
                               <Chip label={program.status} size="small" sx={{ height: 18, fontSize: '0.65rem' }} />
                             )}
+                            {tunerStatus?.targetIp && tunerStatus?.vctNumber === program.virtualChannel && (
+                              <Chip label={tunerStatus.targetIp} size="small" sx={{ height: 18, fontSize: '0.65rem' }} />
+                            )}
                           </TableCell>
                           <TableCell>
                             <Button
