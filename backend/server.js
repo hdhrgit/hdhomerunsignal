@@ -144,7 +144,7 @@ class HDHomeRunController {
           discoveredDevices.map(({ deviceId, deviceIp }) => this.getDeviceModel(deviceIp).then(model => ({
             id: deviceId,
             ip: deviceIp,
-            name: model ? `HDHomeRun ${deviceId} (${model})` : `HDHomeRun ${deviceId}`,
+            name: model ? `HDHomeRun ${deviceId} (${model}) — ${deviceIp}` : `HDHomeRun ${deviceId} — ${deviceIp}`,
             online: true
           })))
         ).then(devices => resolve(devices));
@@ -171,8 +171,8 @@ class HDHomeRunController {
                   id: ip,
                   ip: ip,
                   name: model
-                    ? `HDHomeRun ${deviceId} (${model})`
-                    : `HDHomeRun ${deviceId}`,
+                    ? `HDHomeRun ${deviceId} (${model}) — ${ip}`
+                    : `HDHomeRun ${deviceId} — ${ip}`,
                   online: true
                 }));
               })
@@ -247,7 +247,7 @@ class HDHomeRunController {
           const device = {
             id: host,
             ip: host,
-            name: deviceId ? `HDHomeRun ${deviceId} (${model})` : `HDHomeRun ${model} (${host})`,
+            name: deviceId ? `HDHomeRun ${deviceId} (${model}) — ${host}` : `HDHomeRun ${model} (${host})`,
             online: true
           };
 
